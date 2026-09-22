@@ -1,0 +1,8 @@
+soul.md
+plans/
+logs/
+state.json
+.env
+__pycache__/
+*.pyc
+.venv/
