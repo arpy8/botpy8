@@ -1,8 +1,11 @@
 import json
 import random
+import re
 from pathlib import Path
 
 from utils.llm import generate
+
+SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}$")
 
 DOMAINS = [
     "cli-tools",
@@ -44,6 +47,34 @@ def slug_exists(slug: str, base_dir: Path) -> bool:
     return (base_dir / "projects" / slug).exists()
 
 
+def is_valid_slug(slug: str) -> bool:
+    return bool(SLUG_PATTERN.match(slug))
+
+
+def _strip_json_fences(raw: str) -> str:
+    stripped = raw.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        stripped = "\n".join(lines)
+    return stripped
+
+
+def _ensure_smoke_test_file(plan: dict) -> dict:
+    structure = plan.get("structure", [])
+    if any("test" in entry.lower() for entry in structure):
+        return plan
+    stack = [s.lower() for s in plan.get("stack", [])]
+    if any("python" in s for s in stack):
+        structure.append("test_smoke.py")
+    else:
+        structure.append("smoke.test.js")
+    plan["structure"] = structure
+    return plan
+
+
 def generate_plan(client, soul_text: str, prior_projects: list[dict], domain: str) -> dict:
     prior_summary = "\n".join(
         f"- {p['name']}: {p['pitch']}" for p in prior_projects
@@ -62,8 +93,9 @@ def generate_plan(client, soul_text: str, prior_projects: list[dict], domain: st
         f"Previously built projects (do not repeat these ideas):\n{prior_summary}"
     )
     raw = generate(client, system, user)
-    plan = json.loads(raw)
+    plan = json.loads(_strip_json_fences(raw))
     plan["domain"] = domain
+    plan = _ensure_smoke_test_file(plan)
     return plan
 
 
@@ -81,13 +113,16 @@ def run(base_dir: Path, client, state: dict) -> dict:
     last_domain = state.get("domain")
     domain = pick_domain(last_domain)
 
+    def _needs_regeneration(candidate: dict) -> bool:
+        return not is_valid_slug(candidate["slug"]) or slug_exists(candidate["slug"], base_dir)
+
     plan = generate_plan(client, soul_text, prior_projects, domain)
     attempts = 0
-    while slug_exists(plan["slug"], base_dir) and attempts < 5:
+    while _needs_regeneration(plan) and attempts < 5:
         plan = generate_plan(client, soul_text, prior_projects, domain)
         attempts += 1
-    if slug_exists(plan["slug"], base_dir):
-        raise RuntimeError(f"Could not generate a unique slug after {attempts} attempts")
+    if _needs_regeneration(plan):
+        raise RuntimeError(f"Could not generate a valid, unique slug after {attempts} attempts")
 
     plan_path = write_plan(plan, base_dir)
 

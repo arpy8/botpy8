@@ -20,4 +20,7 @@ def generate(client, system: str, user: str, model: str = MODEL) -> str:
             {"role": "user", "content": user},
         ],
     )
-    return response.choices[0].message.content
+    content = response.choices[0].message.content
+    if not content:
+        raise RuntimeError("LLM returned an empty response")
+    return content

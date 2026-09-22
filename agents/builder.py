@@ -12,8 +12,14 @@ def load_plan(slug: str, base_dir: Path) -> dict:
 
 def scaffold_files(plan: dict, project_dir: Path, client) -> None:
     project_dir.mkdir(parents=True, exist_ok=True)
+    project_root = project_dir.resolve()
     for rel_path in plan["structure"]:
         file_path = project_dir / rel_path
+        resolved = file_path.resolve()
+        if resolved != project_root and project_root not in resolved.parents:
+            raise ValueError(
+                f"structure entry {rel_path!r} escapes project directory {project_dir}"
+            )
         if file_path.exists():
             continue
         file_path.parent.mkdir(parents=True, exist_ok=True)

@@ -66,6 +66,25 @@ def test_scaffold_files_writes_each_structure_entry(tmp_path):
     assert (project_dir / "utils.py").exists()
 
 
+def test_scaffold_files_rejects_path_traversal(tmp_path):
+    project_dir = tmp_path / "projects" / "wylt"
+    fake = _FakeClient(default_content="ignored")
+    plan = dict(PLAN, structure=["../../../escaped.py"])
+    with pytest.raises(ValueError, match="escapes project directory"):
+        builder.scaffold_files(plan, project_dir, fake)
+    assert not (tmp_path / "escaped.py").exists()
+
+
+def test_scaffold_files_rejects_absolute_path(tmp_path):
+    project_dir = tmp_path / "projects" / "wylt"
+    fake = _FakeClient(default_content="ignored")
+    outside = tmp_path / "outside.py"
+    plan = dict(PLAN, structure=[str(outside)])
+    with pytest.raises(ValueError, match="escapes project directory"):
+        builder.scaffold_files(plan, project_dir, fake)
+    assert not outside.exists()
+
+
 def test_scaffold_files_skips_existing_files(tmp_path):
     project_dir = tmp_path / "projects" / "wylt"
     project_dir.mkdir(parents=True)

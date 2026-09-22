@@ -117,6 +117,37 @@ def test_run_writes_plan_and_updates_state(tmp_path):
     assert (tmp_path / "plans" / "wylt.json").exists()
 
 
+def test_run_regenerates_on_invalid_slug(tmp_path):
+    (tmp_path / "soul.md").write_text("profile", encoding="utf-8")
+    bad_plan = json.loads(PLAN_JSON)
+    bad_plan["slug"] = "../../etc/passwd"
+    good_plan = json.loads(PLAN_JSON)
+    good_plan["slug"] = "exl"
+    good_plan["name"] = "exl"
+    fake = _FakeClient([json.dumps(bad_plan), json.dumps(good_plan)])
+    state = {}
+    result = planner.run(tmp_path, fake, state)
+    assert result["project_slug"] == "exl"
+
+
+def test_generate_plan_strips_markdown_json_fences():
+    fenced = "```json\n" + PLAN_JSON + "\n```"
+    fake = _FakeClient([fenced])
+    plan = planner.generate_plan(fake, soul_text="profile", prior_projects=[], domain="cli-tools")
+    assert plan["slug"] == "wylt"
+
+
+def test_run_ensures_structure_includes_a_smoke_test_file(tmp_path):
+    (tmp_path / "soul.md").write_text("profile", encoding="utf-8")
+    no_test_plan = json.loads(PLAN_JSON)
+    no_test_plan["structure"] = ["main.py"]
+    fake = _FakeClient([json.dumps(no_test_plan)])
+    state = {}
+    result = planner.run(tmp_path, fake, state)
+    saved_plan = json.loads((tmp_path / "plans" / "wylt.json").read_text(encoding="utf-8"))
+    assert any("test" in entry.lower() for entry in saved_plan["structure"])
+
+
 def test_run_regenerates_on_slug_collision(tmp_path):
     (tmp_path / "soul.md").write_text("profile", encoding="utf-8")
     (tmp_path / "projects" / "wylt").mkdir(parents=True)

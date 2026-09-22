@@ -65,6 +65,12 @@ def test_generate_sends_system_and_user_messages():
     ]
 
 
+def test_generate_raises_on_empty_content():
+    fake = _FakeClient(content=None)
+    with pytest.raises(RuntimeError, match="empty response"):
+        llm.generate(fake, system="s", user="u")
+
+
 def test_generate_uses_default_model_when_not_specified():
     fake = _FakeClient()
     llm.generate(fake, system="s", user="u")
