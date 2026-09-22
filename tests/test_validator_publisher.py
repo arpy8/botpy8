@@ -2,6 +2,13 @@ import json
 import subprocess
 import pytest
 from agents import validator_publisher as vp
+from utils import state as state_mod
+
+
+@pytest.fixture(autouse=True)
+def isolated_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    yield tmp_path
 
 PLAN = {
     "name": "wylt",
@@ -121,3 +128,36 @@ def test_resume_skips_already_completed_publish_flags(tmp_path, monkeypatch):
     }
     vp.resume(tmp_path, state)
     assert calls == ["wylt"]
+
+
+def test_resume_after_push_failure_can_still_push_once_remote_works(tmp_path):
+    _init_git_repo(tmp_path)
+    _write_plan(tmp_path)
+    _write_passing_project(tmp_path)
+
+    state = {"project_slug": "wylt"}
+    first = vp.run(tmp_path, state)
+    assert first.get("pushed") is not True
+    assert first["phase"] == "publishing"
+
+    bare_remote = tmp_path.parent / "bare_remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(bare_remote)], check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(bare_remote)], cwd=tmp_path, check=True)
+    subprocess.run(["git", "branch", "-M", "main"], cwd=tmp_path, check=True)
+
+    second = vp.resume(tmp_path, first)
+    assert second["pushed"] is True
+    assert second["phase"] == "done"
+
+
+def test_run_flushes_state_to_disk_after_each_publish_substep(tmp_path):
+    _init_git_repo(tmp_path)
+    _write_plan(tmp_path)
+    _write_passing_project(tmp_path)
+
+    state = {"project_slug": "wylt"}
+    vp.run(tmp_path, state)
+
+    on_disk = state_mod.read_state()
+    assert on_disk.get("files_committed") is True
+    assert on_disk.get("registry_updated") is True
