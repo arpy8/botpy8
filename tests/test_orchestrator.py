@@ -1,4 +1,5 @@
 import json
+import logging
 import pytest
 import orchestrator
 
@@ -108,3 +109,31 @@ def test_run_cycle_persists_state_to_disk(monkeypatch, tmp_path):
     orchestrator.run_cycle(tmp_path, dry_run=False, client=object())
     saved = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
     assert saved["phase"] == "done"
+
+
+def test_configure_environment_chdirs_to_base_dir(tmp_path):
+    subdir = tmp_path / "repo"
+    subdir.mkdir()
+    orchestrator.configure_environment(subdir)
+    import os
+
+    assert os.getcwd() == str(subdir.resolve())
+
+
+def test_configure_environment_loads_env_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("OPENROUTER_API_KEY=from-dotenv\n", encoding="utf-8")
+    orchestrator.configure_environment(tmp_path)
+    import os
+
+    assert os.environ.get("OPENROUTER_API_KEY") == "from-dotenv"
+
+
+def test_setup_logging_writes_to_both_file_and_console(tmp_path):
+    orchestrator.setup_logging(tmp_path)
+    root = logging.getLogger()
+    handler_types = {type(h) for h in root.handlers}
+    assert logging.StreamHandler in handler_types or any(
+        type(h) is logging.StreamHandler for h in root.handlers
+    )
+    assert any(isinstance(h, logging.FileHandler) for h in root.handlers)
