@@ -125,6 +125,11 @@ minime/
 
 - Reads `soul.md` in full (never cached).
 - Reads `state.json` for the last-used domain; picks a different one.
+- Reads `projects.json` for every previously built project (name, slug, pitch,
+  domain, stack) and passes this list into the idea-generation prompt so the
+  new idea doesn't repeat a prior project's concept, not just its slug — a
+  slug collision check alone is not enough, since the same idea could get a
+  different name.
 - Generates: project slug (naming convention above, collision-checked against
   `projects/`), one-line pitch, a first-person "story" (why build this — a
   few sentences in arpy8's voice, drawn from `soul.md`'s interests/patterns),
