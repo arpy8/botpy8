@@ -257,3 +257,18 @@ def test_ensure_repo_creates_public_repo(monkeypatch):
     monkeypatch.setattr(github, "_api", api)
     REAL_ENSURE_REPO(BOT, "wylt", "pitch")
     assert sent["private"] is False and sent["name"] == "wylt"
+
+
+def test_github_permission_error_keeps_project_publishing_for_retry(tmp_path, monkeypatch):
+    _init_git_repo(tmp_path)
+    _write_plan(tmp_path)
+    _write_passing_project(tmp_path)
+
+    def denied(account, name, description):
+        raise RuntimeError("could not create repo botpy8/wylt (HTTP 403): Resource not accessible by personal access token")
+
+    monkeypatch.setattr(github, "ensure_repo", denied)
+    result = vp.run(tmp_path, {"project_slug": "wylt"})
+    assert result["phase"] == "publishing"
+    assert "repo_url" not in result
+    assert state_mod.read_state()["phase"] == "publishing"

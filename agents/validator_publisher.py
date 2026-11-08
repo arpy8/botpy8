@@ -87,11 +87,17 @@ def run(base_dir: Path, state: dict) -> dict:
 
     # Each sub-step is flagged and flushed as soon as it succeeds, so a crash
     # mid-publish resumes without redoing (or skipping) anything.
-    account = github.load_bot_account()
-
-    if not state.get("repo_url"):
-        state["repo_url"] = github.ensure_repo(account, slug, plan["pitch"])
+    try:
+        account = github.load_bot_account()
+        if not state.get("repo_url"):
+            state["repo_url"] = github.ensure_repo(account, slug, plan["pitch"])
+            write_state(state)
+    except RuntimeError as exc:
+        # Token/permission problems are fixed outside the pipeline; the project is
+        # still good, so stay in `publishing` and retry next run instead of failing it.
+        logging.error("[publisher] %s", exc)
         write_state(state)
+        return state
 
     if not state.get("code_pushed"):
         ok, output = github.push_project(
