@@ -1,4 +1,4 @@
-# botpy8_soul
+# botpy8
 
 An autonomous pipeline that plans, builds, and publishes small software
 projects in the style of arpy8 (Arpit Sengar), without a human in the loop
