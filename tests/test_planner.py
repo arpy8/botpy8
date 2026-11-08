@@ -52,6 +52,43 @@ PLAN_JSON = json.dumps({
 })
 
 
+def test_normalize_structure_flattens_indented_tree_with_comments():
+    # Exactly the shape that broke the glyph build.
+    tree = [
+        "src/",
+        "  components/",
+        "    CanvasGrid.tsx        // 80x24+ character grid",
+        "    Timeline.tsx          // Frame timeline",
+        "  hooks/",
+        "    useProject.ts         // IndexedDB CRUD",
+        "  App.tsx",
+        "public/",
+        "  sw.js",
+        "package.json",
+        "smoke.test.js",
+    ]
+    assert planner.normalize_structure(tree) == [
+        "src/components/CanvasGrid.tsx",
+        "src/components/Timeline.tsx",
+        "src/hooks/useProject.ts",
+        "src/App.tsx",
+        "public/sw.js",
+        "package.json",
+        "smoke.test.js",
+    ]
+
+
+def test_normalize_structure_keeps_flat_paths_and_handles_tree_glyphs():
+    assert planner.normalize_structure(["src/app/page.tsx", "./README.md"]) == [
+        "src/app/page.tsx",
+        "README.md",
+    ]
+    assert planner.normalize_structure(["src/", "├── lib/", "│   └── a.ts  # helper", "└── b.ts"]) == [
+        "src/lib/a.ts",
+        "src/b.ts",
+    ]
+
+
 def test_read_soul_raises_when_missing(tmp_path):
     with pytest.raises(FileNotFoundError, match="soul.md"):
         planner.read_soul(tmp_path)

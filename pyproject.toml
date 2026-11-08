@@ -1,16 +1,17 @@
 [project]
-name = "minime"
+name = "botpy8_soul"
 version = "0.1.0"
-description = "Add your description here"
+description = "Autonomous pipeline that plans, builds, QA-tests and publishes projects to the botpy8 GitHub account"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "openai>=3.7.0",
+    "playwright>=1.64.1",
+    "python-dotenv>=1.2.3",
 ]
 
 [dependency-groups]
 dev = [
-    "python-dotenv>=1.2.3",
     "pytest>=8.0.0",
     "ruff>=0.6.0",
     "black>=24.0.0",

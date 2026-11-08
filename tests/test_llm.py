@@ -75,3 +75,54 @@ def test_generate_uses_default_model_when_not_specified():
     fake = _FakeClient()
     llm.generate(fake, system="s", user="u")
     assert fake.chat.completions.last_kwargs["model"] == llm.MODEL
+
+
+def _rate_limit_error(message, reset_ms=None):
+    from openai import RateLimitError
+
+    class _RateLimit(RateLimitError):
+        def __init__(self):  # skip the HTTP response plumbing; chat only reads str() and .body
+            Exception.__init__(self, message)
+            self.message = message
+            self.body = {"message": message, "code": 429}
+            if reset_ms is not None:
+                self.body["metadata"] = {"headers": {"X-RateLimit-Reset": str(reset_ms)}}
+
+    return _RateLimit()
+
+
+class _FlakyCompletions:
+    def __init__(self, errors):
+        self.errors = list(errors)
+        self.calls = 0
+
+    def create(self, **kwargs):
+        self.calls += 1
+        if self.errors:
+            raise self.errors.pop(0)
+        from types import SimpleNamespace
+        return SimpleNamespace(choices=[SimpleNamespace(message="ok")])
+
+
+def _client_with(completions):
+    from types import SimpleNamespace
+    return SimpleNamespace(chat=SimpleNamespace(completions=completions))
+
+
+def test_chat_waits_out_per_minute_rate_limits(monkeypatch):
+    from utils import llm
+    slept = []
+    monkeypatch.setattr(llm.time, "sleep", slept.append)
+    completions = _FlakyCompletions([_rate_limit_error("Rate limit exceeded: free-models-per-min.")])
+    assert llm.chat(_client_with(completions), [], []) == "ok"
+    assert slept == [llm.RATE_LIMIT_WAITS[0]]
+
+
+def test_chat_fails_fast_on_daily_quota_with_reset_time(monkeypatch):
+    import pytest
+    from utils import llm
+    monkeypatch.setattr(llm.time, "sleep", lambda s: pytest.fail("should not wait for a daily quota"))
+    completions = _FlakyCompletions([_rate_limit_error("Rate limit exceeded: free-models-per-day.", 1794096000000)])
+    with pytest.raises(RuntimeError, match=r"daily request quota .*(resets 2026-11-08 00:00 UTC)"):
+        llm.chat(_client_with(completions), [], [])
+    assert completions.calls == 1

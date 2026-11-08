@@ -62,6 +62,38 @@ def _strip_json_fences(raw: str) -> str:
     return stripped
 
 
+def normalize_structure(entries: list) -> list[str]:
+    """Turn whatever the LLM returned for `structure` into flat file paths.
+
+    Models often answer with an indented tree ("src/", "  components/",
+    "    App.tsx  // comment"). Taken literally that creates files named
+    "src" and "  components". Rebuild full paths from the indentation, drop
+    comments, and keep only file entries.
+    """
+    paths: list[str] = []
+    # (indent, directory path) for each open directory in the tree
+    open_dirs: list[tuple[int, str]] = []
+    for raw in entries:
+        if not isinstance(raw, str):
+            continue
+        line = re.split(r"\s+(?://|#)", raw, maxsplit=1)[0].rstrip()
+        # Treat tree-drawing characters ("├── ", "│   ") as indentation.
+        line = re.sub(r"^[\s│├└─|`]+", lambda m: " " * len(m.group(0)), line)
+        name = line.strip().replace("\\", "/").removeprefix("./")
+        if not name:
+            continue
+        indent = len(line) - len(line.lstrip())
+        while open_dirs and open_dirs[-1][0] >= indent:
+            open_dirs.pop()
+        parent = open_dirs[-1][1] if open_dirs else ""
+        full = f"{parent}/{name}" if parent else name
+        if full.endswith("/"):
+            open_dirs.append((indent, full.rstrip("/")))
+        else:
+            paths.append(full)
+    return paths
+
+
 def _ensure_smoke_test_file(plan: dict) -> dict:
     structure = plan.get("structure", [])
     if any("test" in entry.lower() for entry in structure):
@@ -85,7 +117,12 @@ def generate_plan(client, soul_text: str, prior_projects: list[dict], domain: st
         "Never repeat the concept of a project already built. "
         'Respond with strict JSON only, matching this schema: '
         '{"name": str, "slug": str, "pitch": str, "story": str, "domain": str, '
-        '"stack": [str], "structure": [str], "features": [str], "aesthetic_notes": str}'
+        '"stack": [str], "structure": [str], "features": [str], "aesthetic_notes": str}. '
+        '"structure" is a flat list of file paths relative to the project root '
+        '(e.g. "src/components/Grid.tsx"): no directories, indentation, or comments. '
+        "Anything with a user interface (web apps, browser tools, visual demos) must use "
+        "Next.js (App Router) + TypeScript + Tailwind CSS, with paths under src/app/ and "
+        "src/components/ as create-next-app generates them."
     )
     user = (
         f"Developer profile:\n{soul_text}\n\n"
@@ -95,6 +132,7 @@ def generate_plan(client, soul_text: str, prior_projects: list[dict], domain: st
     raw = generate(client, system, user)
     plan = json.loads(_strip_json_fences(raw))
     plan["domain"] = domain
+    plan["structure"] = normalize_structure(plan.get("structure", []))
     plan = _ensure_smoke_test_file(plan)
     return plan
 

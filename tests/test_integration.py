@@ -2,43 +2,8 @@ import json
 import subprocess
 import pytest
 import orchestrator
-
-
-class _FakeCompletions:
-    def __init__(self, plan_json):
-        self._plan_json = plan_json
-        self._plan_served = False
-
-    def create(self, **kwargs):
-        if not self._plan_served:
-            self._plan_served = True
-            return _FakeResponse(self._plan_json)
-        return _FakeResponse("def test_ok():\n    assert True\n")
-
-
-class _FakeResponse:
-    def __init__(self, content):
-        self.choices = [_FakeChoice(content)]
-
-
-class _FakeChoice:
-    def __init__(self, content):
-        self.message = _FakeMessage(content)
-
-
-class _FakeMessage:
-    def __init__(self, content):
-        self.content = content
-
-
-class _FakeChat:
-    def __init__(self, plan_json):
-        self.completions = _FakeCompletions(plan_json)
-
-
-class _FakeClient:
-    def __init__(self, plan_json):
-        self.chat = _FakeChat(plan_json)
+from agents import github
+from tests.fake_llm import ScriptedClient, build_python_project
 
 
 PLAN_JSON = json.dumps({
@@ -52,6 +17,10 @@ PLAN_JSON = json.dumps({
     "features": ["clipboard history"],
     "aesthetic_notes": "minimal terminal output",
 })
+
+
+def _client():
+    return ScriptedClient([PLAN_JSON, build_python_project(), [("finish", {"summary": "done"})]])
 
 
 @pytest.fixture(autouse=True)
@@ -68,7 +37,7 @@ def isolated_repo(tmp_path, monkeypatch):
 
 
 def test_dry_run_produces_project_without_pushing(tmp_path):
-    fake = _FakeClient(PLAN_JSON)
+    fake = _client()
     result = orchestrator.run_cycle(tmp_path, dry_run=True, client=fake)
     assert result["phase"] == "done"
     assert (tmp_path / "projects" / "wylt" / "test_smoke.py").exists()
@@ -76,11 +45,20 @@ def test_dry_run_produces_project_without_pushing(tmp_path):
     assert not (tmp_path / "projects.json").exists()
 
 
-def test_live_run_stages_project_and_registry(tmp_path):
-    fake = _FakeClient(PLAN_JSON)
-    result = orchestrator.run_cycle(tmp_path, dry_run=False, client=fake)
-    assert result["phase"] == "publishing"
-    assert result["files_committed"] is True
+def test_live_run_publishes_to_bot_repo_and_records_registry(tmp_path, monkeypatch):
+    bot_remote = tmp_path.parent / f"{tmp_path.name}_bot_wylt.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(bot_remote)], check=True)
+    bot = github.BotAccount("botpy8", "t", "botpy8", "1+botpy8@users.noreply.github.com")
+    monkeypatch.setattr(github, "load_bot_account", lambda: bot)
+    monkeypatch.setattr(github, "ensure_repo", lambda account, name, desc: f"https://github.com/botpy8/{name}")
+    monkeypatch.setattr(github, "remote_url", lambda account, name: str(bot_remote))
+
+    result = orchestrator.run_cycle(tmp_path, dry_run=False, client=_client())
+    assert result["phase"] == "publishing"  # no botpy8_soul remote in this sandbox
+    assert result["code_pushed"] is True
     assert result["registry_updated"] is True
     registry = json.loads((tmp_path / "projects.json").read_text(encoding="utf-8"))
-    assert registry[0]["slug"] == "wylt"
+    assert registry[0] == registry[0] | {"slug": "wylt", "repo": "https://github.com/botpy8/wylt"}
+    log = subprocess.run(["git", "log", "--format=%an", "main"], cwd=bot_remote,
+                         capture_output=True, text=True, check=True).stdout
+    assert log.strip() == "botpy8"

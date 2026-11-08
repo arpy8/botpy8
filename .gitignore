@@ -6,3 +6,13 @@ state.json
 __pycache__/
 *.pyc
 .venv/
+
+# generated project build output (create-next-app adds its own .gitignore too)
+node_modules/
+.next/
+.venv/
+.pytest_cache/
+
+# generated projects are published to the bot account; only projects.json is tracked here
+projects/*
+!projects/.gitkeep
