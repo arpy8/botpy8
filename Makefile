@@ -1,4 +1,4 @@
-.PHONY: install run dry-run test qa fix
+.PHONY: install run loop dry-run test qa fix
 
 install:
 	uv sync
@@ -6,6 +6,9 @@ install:
 
 run:
 	uv run python orchestrator.py
+
+loop:
+	uv run python orchestrator.py --loop
 
 dry-run:
 	uv run python orchestrator.py --dry-run

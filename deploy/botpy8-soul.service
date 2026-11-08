@@ -1,0 +1,25 @@
+# Runs the pipeline back to back on a Raspberry Pi (or any systemd host).
+# Install: see "Raspberry Pi setup" in README.md. Edit User/paths if your
+# user isn't `pi` or the repo isn't at ~/botpy8_soul.
+[Unit]
+Description=botpy8_soul: plan, build, QA and publish projects back to back
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/botpy8_soul
+# uv, node and pnpm must be on PATH for the agents' shell commands.
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/pi/.local/bin/uv run python orchestrator.py --loop
+# The loop never exits on its own; restart it after crashes or reboots.
+# State lives in state.json, so a restart resumes the current project.
+Restart=always
+RestartSec=60
+# A Next.js build plus headless Chromium is heavy for a Pi; keep it polite.
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

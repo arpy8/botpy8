@@ -16,3 +16,4 @@ node_modules/
 # generated projects are published to the bot account; only projects.json is tracked here
 projects/*
 !projects/.gitkeep
+.botpy8_soul.lock

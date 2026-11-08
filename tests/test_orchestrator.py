@@ -137,3 +137,74 @@ def test_setup_logging_writes_to_both_file_and_console(tmp_path):
         type(h) is logging.StreamHandler for h in root.handlers
     )
     assert any(isinstance(h, logging.FileHandler) for h in root.handlers)
+
+
+class _QuotaBuilder:
+    @staticmethod
+    def run(base_dir, client, state):
+        from datetime import datetime, timezone
+        from utils.llm import QuotaExhausted
+        raise QuotaExhausted("free-model", datetime(2030, 1, 1, tzinfo=timezone.utc))
+
+    resume = run
+
+
+def test_quota_exhaustion_pauses_instead_of_failing(monkeypatch, tmp_path):
+    monkeypatch.setattr(orchestrator, "planner", _StubPlanner)
+    monkeypatch.setattr(orchestrator, "builder", _QuotaBuilder)
+    result = orchestrator.run_cycle(tmp_path, dry_run=False, client=object())
+    assert result["phase"] == "building"
+    assert result["project_slug"] == "wylt"
+    assert result["paused_until"].startswith("2030-01-01T00:02")
+    saved = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert saved["phase"] == "building"
+
+
+def test_paused_cycle_does_no_work_until_the_reset(monkeypatch, tmp_path):
+    (tmp_path / "state.json").write_text(json.dumps(
+        {"phase": "building", "project_slug": "wylt", "paused_until": "2999-01-01T00:00:00+00:00"}), encoding="utf-8")
+    monkeypatch.setattr(orchestrator, "builder", _ExplodingBuilder)  # would fail if called
+    result = orchestrator.run_cycle(tmp_path, dry_run=False, client=object())
+    assert result["phase"] == "building"
+    assert orchestrator.paused_for(result) > 0
+
+
+def test_cycle_after_the_pause_resumes_and_clears_it(monkeypatch, tmp_path):
+    (tmp_path / "state.json").write_text(json.dumps(
+        {"phase": "validating", "project_slug": "wylt", "paused_until": "2000-01-01T00:00:00+00:00"}), encoding="utf-8")
+    monkeypatch.setattr(orchestrator, "validator_publisher", _StubValidatorPublisher)
+    result = orchestrator.run_cycle(tmp_path, dry_run=False, client=object())
+    assert result["phase"] == "done"
+    assert "paused_until" not in result
+
+
+def test_run_lock_allows_only_one_holder(tmp_path):
+    from utils.lock import AlreadyRunning, RunLock
+
+    lock_path = tmp_path / ".botpy8_soul.lock"
+    with RunLock(lock_path):
+        with pytest.raises(AlreadyRunning):
+            with RunLock(lock_path):
+                pass
+    with RunLock(lock_path):  # released on exit, so it can be taken again
+        pass
+
+
+def test_second_process_exits_while_lock_is_held(tmp_path):
+    import subprocess
+    import sys
+    from utils.lock import RunLock
+
+    script = (
+        "import sys; sys.path.insert(0, sys.argv[1]);"
+        "from pathlib import Path; from utils.lock import RunLock, AlreadyRunning\n"
+        "try:\n    RunLock(Path(sys.argv[2])).__enter__(); print('acquired')\n"
+        "except AlreadyRunning: print('busy')"
+    )
+    repo = str(orchestrator.Path(orchestrator.__file__).resolve().parent)
+    lock_path = tmp_path / ".botpy8_soul.lock"
+    with RunLock(lock_path):
+        busy = subprocess.run([sys.executable, "-c", script, repo, str(lock_path)], capture_output=True, text=True)
+    free = subprocess.run([sys.executable, "-c", script, repo, str(lock_path)], capture_output=True, text=True)
+    assert busy.stdout.strip() == "busy"
+    assert free.stdout.strip() == "acquired"

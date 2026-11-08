@@ -71,6 +71,9 @@ A crash or reboot at any point is safe to resume from:
   continues from there.
 - **validating** — re-runs lint/tests/smoke-check from scratch; never
   regenerates source files.
+- **paused** — if the LLM's daily quota runs out in any phase, the project
+  keeps that phase and `state.json` records `paused_until`; runs before then
+  exit immediately, and the next one after it resumes where it stopped.
 - **publishing** — each of `repo_url`, `code_pushed`, `registry_updated`, `pushed`
   is an independent flag, checked before its sub-step runs and flushed to
   disk immediately after it succeeds, so a crash mid-publish never re-does
@@ -93,6 +96,7 @@ Also required at the repo root (not tracked in git):
 ```bash
 make dry-run   # plan + build, skip commit/push — safe to try repeatedly
 make run       # full cycle, pushes to main on success
+make loop      # cycles back to back; sleeps through daily-quota pauses
 make test      # run the pytest suite
 make qa SLUG=glyph    # QA an existing project and print bug reports
 make fix SLUG=glyph   # QA it, then have the developer agent fix what QA found
@@ -100,18 +104,39 @@ make fix SLUG=glyph   # QA it, then have the developer agent fix what QA found
 
 ## Raspberry Pi setup
 
-1. Flash Raspberry Pi OS (64-bit, ARM64), Python 3.11+ preinstalled or
-   installed via `pyenv`/`apt`.
-2. Install `uv`: `curl -LsSf https://astral.sh/uv/install.sh | sh`.
-3. Clone this repo, `cd` into it, `make install`.
-4. Add `soul.md` and `.env` manually (both gitignored — copy them over,
-   don't generate them on the Pi).
-   Node.js 20+ and pnpm are also needed — the builder runs `pnpm dlx
-   create-next-app`, `pnpm add`, and `pnpm run build` for UI projects.
-5. Confirm `git push` works headlessly (SSH key or credential helper
-   already configured for this repo's remote — botpy8_soul does not manage git
-   credentials).
-6. Run on a schedule via cron, e.g. every 6 hours:
-   `0 */6 * * * cd /home/pi/botpy8_soul && make run >> logs/cron.log 2>&1`
-7. `make dry-run` first to confirm the pipeline produces a project without
-   pushing, before trusting it to run unattended.
+Runs well on a Pi 4/5 with 8 GB RAM (4 GB at a stretch), Raspberry Pi OS
+64-bit (Bookworm), and an SSD or a large SD card: `node_modules` and Chromium
+take several GB, and each project adds more.
+
+1. Install system tools, Node.js 22 + pnpm, and uv:
+   ```bash
+   sudo apt update && sudo apt install -y git make curl
+   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs
+   sudo corepack enable && corepack prepare pnpm@latest --activate
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+2. Clone and install (includes Playwright's Chromium and its system libraries):
+   ```bash
+   git clone https://github.com/arpy8/botpy8_soul ~/botpy8_soul && cd ~/botpy8_soul
+   uv sync && uv run playwright install --with-deps chromium
+   ```
+3. Copy `.env` (`OPENROUTER_API_KEY`, `BOTPY8_GITHUB_TOKEN`) and `soul.md` over
+   from your machine. Both are gitignored, so never commit them.
+4. Give the Pi push access to this repo as you, because the registry commit is
+   pushed here. Use `gh auth login && gh auth setup-git`, or a deploy key with
+   write access to this repo only. The bot token in `.env` covers the
+   per-project repos.
+5. Smoke test: `make dry-run` (plan, build and QA, without publishing), then `make run`.
+6. Run it continuously as a service:
+   ```bash
+   sudo cp deploy/botpy8-soul.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now botpy8-soul
+   journalctl -u botpy8-soul -f
+   ```
+
+`--loop` runs one cycle after another (5 minutes apart; change it with
+`--interval`). Only one run can hold `.botpy8_soul.lock` at a time, so a
+manual `make run` while the service is busy exits immediately. When the free
+OpenRouter quota (about 1,000 requests a day) runs out, the current project
+keeps its phase and the loop sleeps until the quota resets. Expect roughly
+1–3 projects a day on the free tier.

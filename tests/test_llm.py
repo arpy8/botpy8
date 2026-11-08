@@ -126,3 +126,14 @@ def test_chat_fails_fast_on_daily_quota_with_reset_time(monkeypatch):
     with pytest.raises(RuntimeError, match=r"daily request quota .*(resets 2026-11-08 00:00 UTC)"):
         llm.chat(_client_with(completions), [], [])
     assert completions.calls == 1
+
+
+def test_quota_error_carries_reset_time_and_covers_generate(monkeypatch):
+    import pytest
+    from datetime import datetime, timezone
+    from utils import llm
+    monkeypatch.setattr(llm.time, "sleep", lambda s: pytest.fail("should not wait for a daily quota"))
+    completions = _FlakyCompletions([_rate_limit_error("Rate limit exceeded: free-models-per-day.", 1794096000000)])
+    with pytest.raises(llm.QuotaExhausted) as info:
+        llm.generate(_client_with(completions), "system", "user")
+    assert info.value.resets_at == datetime(2026, 11, 8, tzinfo=timezone.utc)
