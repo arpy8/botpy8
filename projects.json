@@ -1,0 +1,21 @@
+[
+  {
+    "name": "glyph",
+    "slug": "glyph",
+    "pitch": "A browser-based ASCII/ANSI art studio with a timeline animator \u2014 create terminal-style animations, export to GIF/MP4/asciicast, all local-first with a dark, monospace-native aesthetic.",
+    "story": "Arpit loves terminal aesthetics \u2014 ASCII animations on his portfolio, canvas experiments, the shadcn dark theme. He needs a tool to craft those animations without leaving the browser, with vim-like bindings, onion skinning, and zero server dependency. Glyph is that tool: a personal animation studio for text-mode art, built the way he'd build it \u2014 dark, minimal, keyboard-first, and export-ready for READMEs, demos, or just fun.",
+    "domain": "browser-tools",
+    "stack": [
+      "TypeScript",
+      "React",
+      "Tailwind CSS",
+      "Canvas API",
+      "IndexedDB (via idb)",
+      "FFmpeg.wasm",
+      "Vite",
+      "PWA (Workbox)"
+    ],
+    "repo": "https://github.com/botpy8/glyph",
+    "timestamp": "2026-11-08T07:31:54.198709+00:00"
+  }
+]
